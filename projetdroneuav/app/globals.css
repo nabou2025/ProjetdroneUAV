@@ -1,0 +1,44 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --bg: #0A0A0A;
+  --panel: #161616;
+  --border: #2A2A2A;
+  --ink: #F5F5F5;
+  --sub: #8A8A8A;
+  --accent: #1DDB7A;
+  --danger: #E5483D;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  background: var(--bg);
+  color: var(--ink);
+  font-family: 'Inter', sans-serif;
+  margin: 0;
+}
+
+/* Rotation 2D du drone */
+.drone-spin {
+  animation: spin 14s linear infinite;
+}
+
+@keyframes spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
+/* Flottement léger en plus de la rotation, pour un effet plus naturel */
+.drone-float {
+  animation: float 4s ease-in-out infinite;
+}
+
+@keyframes float {
+  0%, 100% { transform: translateY(0px); }
+  50% { transform: translateY(-14px); }
+}
