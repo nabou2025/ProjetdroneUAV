@@ -1,6 +1,7 @@
 'use client'
 import { useState } from 'react'
 import Link from 'next/link'
+import { useRouter } from 'next/navigation'
 import WaveBackground from '../components/WaveBackground'
 
 const ROLES = [
@@ -10,7 +11,8 @@ const ROLES = [
 ]
 
 export default function LoginPage() {
-  const [mode, setMode] = useState('login') // 'login' | 'register'
+  const router = useRouter()
+  const [mode, setMode] = useState('login')
   const [role, setRole] = useState('etudiant')
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
@@ -19,32 +21,35 @@ export default function LoginPage() {
   const [error, setError] = useState('')
 
   const handleSubmit = async (e) => {
-  e.preventDefault()
-  setLoading(true)
-  setError('')
+    e.preventDefault()
+    setLoading(true)
+    setError('')
 
-  const body = mode === 'login'
-    ? { action: 'login', email, password }
-    : { action: 'register', email, password, name, role }
+    const body = mode === 'login'
+      ? { action: 'login', email, password }
+      : { action: 'register', email, password, name, role }
 
-  try {
-    const res = await fetch('/api/auth', {   // ← un seul endpoint maintenant
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(body),
-    })
-    const data = await res.json()
-    if (!res.ok) {
-      setError(data.message || 'Une erreur est survenue')
-    } else {
-      window.location.href = '/dashboard'
+    try {
+      const res = await fetch('/api/auth', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      })
+      const data = await res.json()
+      if (!res.ok) {
+        setError(data.message || 'Une erreur est survenue')
+      } else {
+        // ✅ Sauvegarde l'utilisateur dans localStorage
+        localStorage.setItem('uav_user', JSON.stringify(data.user))
+        // ✅ Redirige vers le dashboard
+        router.push('/dashboard')
+      }
+    } catch {
+      setError('Erreur de connexion au serveur')
+    } finally {
+      setLoading(false)
     }
-  } catch {
-    setError('Erreur de connexion au serveur')
-  } finally {
-    setLoading(false)
   }
-}
 
   return (
     <div style={{
@@ -67,7 +72,7 @@ export default function LoginPage() {
         boxShadow: '0 40px 80px rgba(0,0,0,0.6)',
       }}>
 
-        {/* ── PANNEAU GAUCHE : vagues bleues ── */}
+        {/* ── PANNEAU GAUCHE ── */}
         <div style={{
           flex: '1.1',
           position: 'relative',
@@ -79,8 +84,6 @@ export default function LoginPage() {
           padding: '40px',
         }}>
           <WaveBackground />
-
-          {/* Logo + nom */}
           <div style={{ position: 'relative', zIndex: 2 }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
               <svg width="28" height="28" viewBox="0 0 26 26" fill="none">
@@ -93,17 +96,8 @@ export default function LoginPage() {
               </span>
             </div>
           </div>
-
-          {/* Texte bas gauche */}
           <div style={{ position: 'relative', zIndex: 2 }}>
-            <div style={{
-              fontSize: '28px',
-              fontWeight: 800,
-              color: '#F5F5F5',
-              lineHeight: 1.2,
-              marginBottom: '12px',
-              letterSpacing: '-0.01em',
-            }}>
+            <div style={{ fontSize: '28px', fontWeight: 800, color: '#F5F5F5', lineHeight: 1.2, marginBottom: '12px', letterSpacing: '-0.01em' }}>
               Bienvenue<br />sur UAV-D+
             </div>
             <p style={{ fontSize: '13px', color: '#7E8DA0', lineHeight: 1.6, maxWidth: '280px' }}>
@@ -112,7 +106,7 @@ export default function LoginPage() {
           </div>
         </div>
 
-        {/* ── PANNEAU DROIT : formulaire ── */}
+        {/* ── PANNEAU DROIT ── */}
         <div style={{
           flex: '1',
           background: '#0E1622',
@@ -120,101 +114,52 @@ export default function LoginPage() {
           display: 'flex',
           flexDirection: 'column',
           justifyContent: 'center',
-          gap: '0px',
         }}>
-
-          {/* Titre + switch mode */}
           <div style={{ marginBottom: '28px' }}>
-            <h1 style={{
-              fontSize: '24px',
-              fontWeight: 700,
-              color: '#E8EDF4',
-              marginBottom: '6px',
-              letterSpacing: '-0.01em',
-            }}>
+            <h1 style={{ fontSize: '24px', fontWeight: 700, color: '#E8EDF4', marginBottom: '6px', letterSpacing: '-0.01em' }}>
               {mode === 'login' ? 'Connexion' : 'Créer un compte'}
             </h1>
             <p style={{ fontSize: '13px', color: '#7E8DA0' }}>
-              {mode === 'login'
-                ? 'Accédez à votre espace de conception'
-                : 'Rejoignez la plateforme en quelques secondes'}
+              {mode === 'login' ? 'Accédez à votre espace de conception' : 'Rejoignez la plateforme en quelques secondes'}
             </p>
           </div>
 
           <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
 
-            {/* Nom (uniquement register) */}
             {mode === 'register' && (
               <div>
                 <label style={labelStyle}>Nom complet</label>
-                <input
-                  type="text"
-                  placeholder="Ndèye Félicité Diop"
-                  value={name}
-                  onChange={e => setName(e.target.value)}
-                  required
-                  style={inputStyle}
-                />
+                <input type="text" placeholder="Ndèye Félicité Diop" value={name}
+                  onChange={e => setName(e.target.value)} required style={inputStyle} />
               </div>
             )}
 
-            {/* Email */}
             <div>
               <label style={labelStyle}>Adresse e-mail</label>
-              <input
-                type="email"
-                placeholder="nom@institution.edu"
-                value={email}
-                onChange={e => setEmail(e.target.value)}
-                required
-                style={inputStyle}
-              />
+              <input type="email" placeholder="nom@institution.edu" value={email}
+                onChange={e => setEmail(e.target.value)} required style={inputStyle} />
             </div>
 
-            {/* Mot de passe */}
             <div>
               <label style={labelStyle}>Mot de passe</label>
-              <input
-                type="password"
-                placeholder="••••••••••••"
-                value={password}
-                onChange={e => setPassword(e.target.value)}
-                required
-                style={inputStyle}
-              />
+              <input type="password" placeholder="••••••••••••" value={password}
+                onChange={e => setPassword(e.target.value)} required style={inputStyle} />
             </div>
 
-            {/* Sélecteur de rôle (uniquement register) */}
             {mode === 'register' && (
               <div>
                 <label style={labelStyle}>Vous êtes</label>
                 <div style={{ display: 'flex', gap: '8px' }}>
                   {ROLES.map(r => (
-                    <button
-                      key={r.id}
-                      type="button"
-                      onClick={() => setRole(r.id)}
-                      style={{
-                        flex: 1,
-                        padding: '10px 6px',
-                        borderRadius: '8px',
-                        border: role === r.id
-                          ? '1.5px solid #39E6D4'
-                          : '1px solid #1F2E40',
-                        background: role === r.id
-                          ? 'rgba(57,230,212,0.08)'
-                          : 'transparent',
-                        color: role === r.id ? '#39E6D4' : '#7E8DA0',
-                        fontSize: '11.5px',
-                        fontWeight: role === r.id ? 700 : 500,
-                        cursor: 'pointer',
-                        display: 'flex',
-                        flexDirection: 'column',
-                        alignItems: 'center',
-                        gap: '4px',
-                        transition: 'all 0.15s',
-                      }}
-                    >
+                    <button key={r.id} type="button" onClick={() => setRole(r.id)} style={{
+                      flex: 1, padding: '10px 6px', borderRadius: '8px',
+                      border: role === r.id ? '1.5px solid #39E6D4' : '1px solid #1F2E40',
+                      background: role === r.id ? 'rgba(57,230,212,0.08)' : 'transparent',
+                      color: role === r.id ? '#39E6D4' : '#7E8DA0',
+                      fontSize: '11.5px', fontWeight: role === r.id ? 700 : 500,
+                      cursor: 'pointer', display: 'flex', flexDirection: 'column',
+                      alignItems: 'center', gap: '4px', transition: 'all 0.15s',
+                    }}>
                       <span style={{ fontSize: '18px' }}>{r.icon}</span>
                       {r.label}
                     </button>
@@ -223,47 +168,25 @@ export default function LoginPage() {
               </div>
             )}
 
-            {/* Message d'erreur */}
             {error && (
               <div style={{
-                background: 'rgba(229,72,61,0.1)',
-                border: '1px solid rgba(229,72,61,0.3)',
-                borderRadius: '8px',
-                padding: '10px 12px',
-                fontSize: '12.5px',
-                color: '#E5483D',
+                background: 'rgba(229,72,61,0.1)', border: '1px solid rgba(229,72,61,0.3)',
+                borderRadius: '8px', padding: '10px 12px', fontSize: '12.5px', color: '#E5483D',
               }}>
                 {error}
               </div>
             )}
 
-            {/* Bouton principal */}
-            <button
-              type="submit"
-              disabled={loading}
-              style={{
-                marginTop: '6px',
-                background: '#3B82F6',
-                color: '#fff',
-                border: 'none',
-                borderRadius: '9px',
-                padding: '13px',
-                fontSize: '14px',
-                fontWeight: 700,
-                cursor: loading ? 'not-allowed' : 'pointer',
-                opacity: loading ? 0.7 : 1,
-                boxShadow: '0 0 24px rgba(59,130,246,0.25)',
-                transition: 'opacity 0.15s',
-              }}
-            >
-              {loading
-                ? 'Chargement...'
-                : mode === 'login' ? 'Se connecter' : "Créer mon compte"}
+            <button type="submit" disabled={loading} style={{
+              marginTop: '6px', background: '#3B82F6', color: '#fff', border: 'none',
+              borderRadius: '9px', padding: '13px', fontSize: '14px', fontWeight: 700,
+              cursor: loading ? 'not-allowed' : 'pointer', opacity: loading ? 0.7 : 1,
+              boxShadow: '0 0 24px rgba(59,130,246,0.25)', transition: 'opacity 0.15s',
+            }}>
+              {loading ? 'Chargement...' : mode === 'login' ? 'Se connecter' : 'Créer mon compte'}
             </button>
-
           </form>
 
-          {/* Divider + switch mode */}
           <div style={{ marginTop: '20px', textAlign: 'center' }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '16px' }}>
               <div style={{ flex: 1, height: '1px', background: '#1F2E40' }} />
@@ -272,29 +195,20 @@ export default function LoginPage() {
               </span>
               <div style={{ flex: 1, height: '1px', background: '#1F2E40' }} />
             </div>
-
             <button
               onClick={() => { setMode(mode === 'login' ? 'register' : 'login'); setError('') }}
               style={{
-                background: 'transparent',
-                color: '#3B82F6',
-                border: '1px solid #1F2E40',
-                borderRadius: '9px',
-                padding: '11px',
-                width: '100%',
-                fontSize: '13.5px',
-                fontWeight: 600,
-                cursor: 'pointer',
+                background: 'transparent', color: '#3B82F6', border: '1px solid #1F2E40',
+                borderRadius: '9px', padding: '11px', width: '100%',
+                fontSize: '13.5px', fontWeight: 600, cursor: 'pointer',
               }}
             >
               {mode === 'login' ? "S'inscrire" : 'Se connecter'}
             </button>
-
             <Link href="/" style={{ display: 'block', marginTop: '16px', fontSize: '12px', color: '#586575', textDecoration: 'none' }}>
               ← Retour à l'accueil
             </Link>
           </div>
-
         </div>
       </div>
     </div>
