@@ -8,6 +8,8 @@ import {
   ChevronDown, ChevronRight, ChevronLeft, Trophy, Zap, Shield, Weight,
   Move, Gauge, Loader2,
 } from "lucide-react";
+import { creerProjetOptimisation, enregistrerResultats } from "@/lib/firestoreOptimisation";
+import { auth } from "@/lib/firebase";
 
 const navItems = [
   { icon: LayoutDashboard, label: "Dashboard",     href: "/accueil" },
@@ -78,14 +80,85 @@ export default function OptimisationPage() {
     color: colors.textPrimary, fontSize: 13, outline: "none", boxSizing: "border-box",
   };
 
-  const handleLaunch = () => {
+  const [erreurLancement, setErreurLancement] = useState<string | null>(null);
+
+  const handleLaunch = async () => {
     setLaunching(true);
-    // TODO backend: appeler le moteur d'optimisation (IA U-Net + SIMP) avec
-    // mission, chargeUtile, materiau comme paramètres, en s'appuyant sur les
-    // variantes filtrées comme point de départ.
-    setTimeout(() => {
+    setErreurLancement(null);
+
+    try {
+      const reponse = await fetch("http://localhost:8000/optimiser", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          mission,
+          charge_utile_kg: parseFloat(chargeUtile) || 0,
+          materiau: materiau || MATERIAUX[0], // le backend a besoin d'un matériau précis
+          nb_variantes: 5,
+        }),
+      });
+
+      if (!reponse.ok) {
+        const erreur = await reponse.json().catch(() => null);
+        throw new Error(erreur?.detail || "Le moteur d'optimisation a renvoyé une erreur.");
+      }
+
+      const variantes = await reponse.json();
+
+      // Stockage immédiat pour la page Résultats (lecture rapide, sans
+      // attendre Firestore) — Firestore sert d'enregistrement persistant
+      // en parallèle, pas de source unique pour cette navigation.
+      sessionStorage.setItem("variantes_optimisation", JSON.stringify(variantes));
+
+      // --- Enregistrement Firestore (si l'utilisateur est connecté) ---
+      // On ne bloque pas la navigation si Firestore échoue (ex: pas
+      // connecté, hors-ligne) : l'utilisateur voit ses résultats dans
+      // tous les cas, l'historique sera simplement incomplet.
+      if (auth.currentUser) {
+        try {
+          const projetId = await creerProjetOptimisation({
+            mission,
+            chargeUtileKg: parseFloat(chargeUtile) || 0,
+            materiau: materiau || MATERIAUX[0],
+            sourceType: "fourni",
+          });
+          const idsFirestore = await enregistrerResultats(
+            projetId,
+            variantes.map((v: any) => ({
+              variante: v.variante,
+              materiau: v.materiau,
+              masseKg: v.masse_kg,
+              contrainteMpa: v.contrainte_mpa,
+              coefficientSecurite: v.coefficient_securite,
+              deplacementMm: v.deplacement_mm,
+              volumeMm3: v.volume_mm3,
+              stlUrl: v.stl_url,
+            }))
+          );
+          // On enrichit chaque variante de son id Firestore, pour que la
+          // page Résultats puisse ensuite appeler selectionnerVariante().
+          const variantesEnrichies = variantes.map((v: any, i: number) => ({
+            ...v,
+            firestoreId: idsFirestore[i],
+          }));
+          sessionStorage.setItem("variantes_optimisation", JSON.stringify(variantesEnrichies));
+          sessionStorage.setItem("projet_id_courant", projetId);
+        } catch (erreurFirestore) {
+          console.warn("Enregistrement Firestore échoué (non bloquant) :", erreurFirestore);
+        }
+      } else {
+        console.warn("Utilisateur non connecté : résultats non enregistrés dans l'historique.");
+      }
+
       router.push("/optimisation/resultats");
-    }, 1800);
+    } catch (e: any) {
+      setErreurLancement(
+        e.message === "Failed to fetch"
+          ? "Impossible de contacter le moteur d'optimisation. Vérifiez qu'il tourne bien sur localhost:8000."
+          : e.message
+      );
+      setLaunching(false);
+    }
   };
 
   return (
@@ -241,7 +314,7 @@ export default function OptimisationPage() {
           </div>
 
           {/* Lancer l'optimisation */}
-          <div style={{ maxWidth: 1100, display: "flex", justifyContent: "center", marginBottom: 32 }}>
+          <div style={{ maxWidth: 1100, display: "flex", flexDirection: "column", alignItems: "center", gap: 12, marginBottom: 32 }}>
             <button
               onClick={handleLaunch}
               disabled={launching}
@@ -255,11 +328,20 @@ export default function OptimisationPage() {
               }}
             >
               {launching ? (
-                <><Loader2 size={19} className="animate-spin" /> Génération en cours…</>
+                <><Loader2 size={19} className="animate-spin" /> Génération en cours… (peut prendre 10-15s)</>
               ) : (
                 <><Zap size={19} /> Lancer l'optimisation IA</>
               )}
             </button>
+            {erreurLancement && (
+              <div style={{
+                fontSize: 13, color: "#dc2626", background: "#fef2f2",
+                border: "1px solid #fecaca", borderRadius: 10, padding: "10px 16px",
+                maxWidth: 520, textAlign: "center",
+              }}>
+                {erreurLancement}
+              </div>
+            )}
           </div>
 
           <div style={{ maxWidth: 1100, display: "flex", justifyContent: "flex-start" }}>

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import {
@@ -9,6 +9,7 @@ import {
   Weight, Shield, Move, Gauge, Layers, Printer,
 } from "lucide-react";
 import Drone3DViewerByUrl from "./Drone3DViewerByUrl";
+import { selectionnerVariante } from "@/lib/firestoreOptimisation";
 
 const navItems = [
   { icon: LayoutDashboard, label: "Dashboard",     href: "/accueil" },
@@ -30,23 +31,60 @@ const colors = {
   accent: "#2563eb",
 };
 
-// Issu de l'analyse réelle du fichier Excel fourni, mêmes 5 variantes que
-// la page Optimisation. `stlUrl: null` tant que le backend ne fournit pas
-// encore les fichiers générés — le viewer affiche alors une forme
-// procédurale représentative en attendant l'intégration réelle.
-const RESULTS = [
-  { id: 1, variante: "Résultat 11", materiau: "Titane 6Al-4V",    masse: 0.124, contrainte: 0.013, securite: 65651.6, deplacement: 0.00022, volume: 28025.7, stlUrl: null },
-  { id: 2, variante: "Résultat 13", materiau: "AlSi10Mg",          masse: 0.075, contrainte: 0.008, securite: 29981.7, deplacement: 0.00002, volume: 28018.3, stlUrl: null },
-  { id: 3, variante: "Résultat 7",  materiau: "ABS",               masse: 0.030, contrainte: 0.003, securite: 6860.96, deplacement: 0.00024, volume: 27993.1, stlUrl: null },
-  { id: 4, variante: "Résultat 10", materiau: "Aluminium 2014-T6", masse: 0.081, contrainte: 0.013, securite: 30753.2, deplacement: 0.00043, volume: 29041.0, stlUrl: null },
-  { id: 5, variante: "Résultat 15", materiau: "ABS",               masse: 0.017, contrainte: 0.362, securite: 55.228,  deplacement: 0.04700, volume: 15892.9, stlUrl: null },
+// Données de repli (utilisées seulement si aucun résultat réel n'est
+// présent dans sessionStorage — ex: accès direct à cette page en dev,
+// sans être passé par /optimisation). En usage normal, ces données sont
+// remplacées par les vraies variantes générées par le moteur SIMP.
+const RESULTATS_REPLI = [
+  { id: "repli-1", variante: "Résultat 11", materiau: "Titane 6Al-4V",    masse_kg: 0.124, contrainte_mpa: 0.013, coefficient_securite: 65651.6, deplacement_mm: 0.00022, volume_mm3: 28025.7, fichier_stl: null },
+  { id: "repli-2", variante: "Résultat 13", materiau: "AlSi10Mg",          masse_kg: 0.075, contrainte_mpa: 0.008, coefficient_securite: 29981.7, deplacement_mm: 0.00002, volume_mm3: 28018.3, fichier_stl: null },
+  { id: "repli-3", variante: "Résultat 7",  materiau: "ABS",               masse_kg: 0.030, contrainte_mpa: 0.003, coefficient_securite: 6860.96, deplacement_mm: 0.00024, volume_mm3: 27993.1, fichier_stl: null },
+  { id: "repli-4", variante: "Résultat 10", materiau: "Aluminium 2014-T6", masse_kg: 0.081, contrainte_mpa: 0.013, coefficient_securite: 30753.2, deplacement_mm: 0.00043, volume_mm3: 29041.0, fichier_stl: null },
+  { id: "repli-5", variante: "Résultat 15", materiau: "ABS",               masse_kg: 0.017, contrainte_mpa: 0.362, coefficient_securite: 55.228,  deplacement_mm: 0.04700, volume_mm3: 15892.9, fichier_stl: null },
 ];
+
+type Variante = {
+  id: string;
+  variante: string;
+  materiau: string;
+  masse_kg: number;
+  contrainte_mpa: number;
+  coefficient_securite: number;
+  deplacement_mm: number;
+  volume_mm3: number;
+  fichier_stl: string | null;
+};
+
+// URL du service Python qui sert les fichiers STL générés (à ajuster une
+// fois Supabase Storage branché — pour l'instant, sert le fichier
+// directement depuis le dossier stl_generes/ du backend Python, à exposer
+// via un endpoint GET /fichiers/{nom} si besoin, ou via Supabase une fois
+// l'upload mis en place).
+const BASE_URL_FICHIERS = "http://localhost:8000/fichiers";
 
 export default function ResultatsPage() {
   const router = useRouter();
-  const [selectedId, setSelectedId] = useState<number>(1);
+  const [resultats, setResultats] = useState<Variante[]>(RESULTATS_REPLI);
+  const [selectedId, setSelectedId] = useState<string>(RESULTATS_REPLI[0].id);
+  const [utiliseDonneesReelles, setUtiliseDonneesReelles] = useState(false);
 
-  const selected = RESULTS.find(r => r.id === selectedId)!;
+  useEffect(() => {
+    const stocke = sessionStorage.getItem("variantes_optimisation");
+    if (stocke) {
+      try {
+        const variantes: Variante[] = JSON.parse(stocke);
+        if (Array.isArray(variantes) && variantes.length > 0) {
+          setResultats(variantes);
+          setSelectedId(variantes[0].id);
+          setUtiliseDonneesReelles(true);
+        }
+      } catch {
+        // si le contenu stocké est corrompu, on garde les données de repli
+      }
+    }
+  }, []);
+
+  const selected = resultats.find(r => r.id === selectedId) ?? resultats[0];
 
   const cardStyle: React.CSSProperties = {
     background: colors.cardBg,
@@ -54,10 +92,22 @@ export default function ResultatsPage() {
     borderRadius: 14,
   };
 
-  const handleConfirm = () => {
-    // TODO backend: enregistrer la variante choisie (selectedId) pour le
-    // projet en cours, puis proposer l'export STL / impression 3D locale.
-    router.push("/dashboard/export");
+  const handleConfirm = async () => {
+    const projetId = sessionStorage.getItem("projet_id_courant");
+    const firestoreId = (selected as any).firestoreId;
+
+    if (projetId && firestoreId) {
+      try {
+        await selectionnerVariante(projetId, firestoreId);
+      } catch (e) {
+        console.warn("Impossible d'enregistrer la sélection dans Firestore (non bloquant) :", e);
+      }
+    }
+
+    // Données nécessaires à la page Export (résumé + lien de téléchargement)
+    sessionStorage.setItem("variante_choisie", JSON.stringify(selected));
+
+    router.push("/export");
   };
 
   return (
@@ -122,11 +172,21 @@ export default function ResultatsPage() {
             </button>
           </div>
 
+          {!utiliseDonneesReelles && (
+            <div style={{
+              maxWidth: 1400, marginBottom: 16, padding: "10px 16px",
+              background: "#fffbeb", border: "1px solid #fde68a", borderRadius: 10,
+              fontSize: 12.5, color: "#92400e",
+            }}>
+              Aucun résultat reçu du moteur d'optimisation pour cette session — affichage de données d'exemple. Lancez l'optimisation depuis la page précédente pour voir vos vraies propositions.
+            </div>
+          )}
+
           <div style={{ display: "grid", gridTemplateColumns: "1fr 340px", gap: 22, maxWidth: 1400 }}>
 
-            {/* Grille des 5 résultats */}
+            {/* Grille des résultats */}
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16 }}>
-              {RESULTS.map(r => (
+              {resultats.map(r => (
                 <div
                   key={r.id}
                   onClick={() => setSelectedId(r.id)}
@@ -143,11 +203,15 @@ export default function ResultatsPage() {
                     <span style={{ fontSize: 12.5, fontWeight: 600 }}>{r.variante} — {r.materiau}</span>
                     {r.id === selectedId && <CheckCircle2 size={16} color={colors.accent} />}
                   </div>
-                  <Drone3DViewerByUrl url={r.stlUrl} height={190} placeholderSeed={r.id} />
+                  <Drone3DViewerByUrl
+                    url={r.fichier_stl ? `${BASE_URL_FICHIERS}/${r.fichier_stl}` : null}
+                    height={190}
+                    placeholderSeed={resultats.indexOf(r) + 1}
+                  />
                 </div>
               ))}
 
-              {/* 6e emplacement : carte d'info plutôt qu'un résultat vide */}
+              {/* Emplacement supplémentaire : carte d'info plutôt qu'un résultat vide */}
               <div style={{
                 ...cardStyle, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center",
                 padding: 24, textAlign: "center", color: colors.textSecondary, gap: 8,
@@ -155,7 +219,7 @@ export default function ResultatsPage() {
                 <Layers size={22} color={colors.accent} />
                 <div style={{ fontSize: 12.5, lineHeight: 1.5 }}>
                   Ces variantes sont générées par le moteur d'optimisation
-                  (IA + analyse topologique) à partir de vos paramètres de mission.
+                  (analyse topologique SIMP) à partir de vos paramètres de mission.
                 </div>
               </div>
             </div>
@@ -166,18 +230,22 @@ export default function ResultatsPage() {
                 Variante sélectionnée
               </div>
 
-              <Drone3DViewerByUrl url={selected.stlUrl} height={170} placeholderSeed={selected.id} />
+              <Drone3DViewerByUrl
+                url={selected.fichier_stl ? `${BASE_URL_FICHIERS}/${selected.fichier_stl}` : null}
+                height={170}
+                placeholderSeed={resultats.indexOf(selected) + 1}
+              />
 
               <div style={{ marginTop: 14, fontSize: 15, fontWeight: 700 }}>{selected.variante}</div>
               <div style={{ fontSize: 12.5, color: colors.textSecondary, marginBottom: 16 }}>{selected.materiau}</div>
 
               <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
                 {[
-                  { icon: Weight, label: "Masse", value: `${selected.masse} kg` },
-                  { icon: Shield, label: "Coefficient de sécurité", value: selected.securite > 999 ? "Très élevé" : selected.securite.toFixed(1) },
-                  { icon: Gauge, label: "Contrainte max.", value: `${selected.contrainte.toFixed(3)} MPa` },
-                  { icon: Move, label: "Déplacement", value: `${selected.deplacement < 0.001 ? "< 0.001" : selected.deplacement.toFixed(3)} mm` },
-                  { icon: Layers, label: "Volume", value: `${selected.volume.toFixed(0)} mm³` },
+                  { icon: Weight, label: "Masse", value: `${selected.masse_kg} kg` },
+                  { icon: Shield, label: "Coefficient de sécurité", value: selected.coefficient_securite > 999 ? "Très élevé" : selected.coefficient_securite.toFixed(1) },
+                  { icon: Gauge, label: "Contrainte max.", value: `${selected.contrainte_mpa.toFixed(3)} MPa` },
+                  { icon: Move, label: "Déplacement", value: `${selected.deplacement_mm < 0.001 ? "< 0.001" : selected.deplacement_mm.toFixed(3)} mm` },
+                  { icon: Layers, label: "Volume", value: `${selected.volume_mm3.toFixed(0)} mm³` },
                 ].map(({ icon: Icon, label, value }) => (
                   <div key={label} style={{
                     display: "flex", justifyContent: "space-between", alignItems: "center",
