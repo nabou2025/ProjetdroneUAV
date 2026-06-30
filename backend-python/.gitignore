@@ -1,0 +1,5 @@
+stl_generes/
+__pycache__/
+*.pyc
+.env
+venv/
